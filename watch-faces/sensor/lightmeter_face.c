@@ -74,6 +74,9 @@ void lightmeter_face_activate(void *context) {
     adc_init();
     adc_enable();
 
+    // Request tick events for continuous measurement (1Hz)
+    movement_request_tick_frequency(1);
+
     // Display most current reading
     lightmeter_show_ev(state);
 }
@@ -155,17 +158,9 @@ bool lightmeter_face_loop(movement_event_t event, void *context) {
             watch_display_text(WATCH_POSITION_BOTTOM, lightmeter_isos[state->iso].str);
             break;
 
-        case EVENT_ALARM_LONG_PRESS: // Take measurement
+        case EVENT_TICK: // Take continuous measurements
             // Read sensor synchronously (no waiting needed with ADC)
             state->lux = lightmeter_read_sensor();
-
-            watch_clear_all_indicators();
-            watch_display_text_with_fallback(WATCH_POSITION_TOP, "EV", "EV");
-            watch_display_text(WATCH_POSITION_BOTTOM, lightmeter_isos[state->iso].str);
-            watch_set_indicator(WATCH_INDICATOR_SIGNAL);
-
-            // Update display with new reading after brief delay
-            delay_ms(100);
             lightmeter_show_ev(state);
             break;
 

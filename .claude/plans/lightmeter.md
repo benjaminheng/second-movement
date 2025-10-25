@@ -42,7 +42,7 @@ Port the legacy lightmeter watch face from the OPT3001 I2C digital light sensor 
 
 ### Phase 2: Header File Migration ✅
 1. Add `#ifdef HAS_IR_SENSOR` guard for conditional compilation
-2. Port all constants from legacy (ISO settings, aperture values, shutter speeds)
+2. Port all constants from legacy (shutter speeds) and simplify ISO/aperture to full stops
 3. Update state structure:
    - **Remove**: `waiting_for_conversion` (no longer needed for synchronous ADC)
    - **Keep**: `iso`, `ap`, `lux`, `mode`
@@ -74,6 +74,25 @@ Port the legacy lightmeter watch face from the OPT3001 I2C digital light sensor 
 - Test basic functionality
 - Empirical calibration of ADC-to-lux conversion
 - Validate EV calculations
+
+### Phase 5: Auto-Measurement Enhancement ✅
+- Added continuous measurement using EVENT_TICK (1Hz update rate)
+- Sensor now automatically updates readings every second
+- Removed manual trigger entirely (EVENT_ALARM_LONG_PRESS handler removed)
+- Updated documentation to reflect auto-measurement behavior
+
+### Phase 6: ISO Range Update ✅
+- Simplified ISO range to full stops only: 100, 200, 400, 800, 1600, 3200
+- Removed fractional ISO values (25, 50, 160) for cleaner cycling
+- Default remains ISO 100
+- All EV values adjusted accordingly (0, 1, 2, 3, 4, 5)
+
+### Phase 7: Aperture Range Update ✅
+- Simplified aperture range to full stops only: f/1.4, f/2.0, f/2.8, f/4.0, f/5.6, f/8, f/11, f/16, f/22
+- Removed half-stop apertures (f/1.8, f/2.4, f/3.3, f/4.8, f/6.7, f/9.5, f/13, f/19)
+- Reduced from 17 values to 9 values for simpler operation
+- Default remains f/4.0
+- EV values: 0, -1, -2, -3, -4, -5, -6, -7, -8
 
 ---
 
@@ -128,7 +147,7 @@ adc_init();
 adc_enable();
 ```
 
-#### 3. Measurement Trigger (`lightmeter_face.c:158-170`)
+#### 3. Measurement Trigger (`lightmeter_face.c:161-180`)
 
 **Removed** (legacy async):
 ```c
@@ -137,15 +156,18 @@ state->waiting_for_conversion = 1;
 // ... later in EVENT_TICK: poll for conversion ready
 ```
 
-**Added** (new synchronous):
+**Added** (new synchronous with auto-measurement):
 ```c
-case EVENT_ALARM_LONG_PRESS:
+case EVENT_TICK: // Take continuous measurements (1Hz)
     state->lux = lightmeter_read_sensor();  // Direct read, no waiting
-    // Brief visual feedback
-    watch_set_indicator(WATCH_INDICATOR_SIGNAL);
-    delay_ms(100);
     lightmeter_show_ev(state);
+    break;
 ```
+
+**Key changes**:
+- Measurements now happen automatically every second via EVENT_TICK
+- EVENT_ALARM_LONG_PRESS handler completely removed (no longer needed)
+- Tick frequency requested in `lightmeter_face_activate()` with `movement_request_tick_frequency(1)`
 
 #### 4. Display Updates (`lightmeter_face.c:81-125`)
 
@@ -172,10 +194,10 @@ HAL_GPIO_IR_ENABLE_off();
 
 ### Preserved Legacy Functionality
 
-All user-facing features remain identical:
-- **Aperture adjustment**: ALARM (+1/2 stop), LIGHT (-1/2 stop)
-- **ISO cycling**: LIGHT long-press (25-1600)
-- **Measurement trigger**: ALARM long-press
+All user-facing features remain identical (except measurement behavior, ISO, and aperture):
+- **Aperture adjustment**: ALARM (+1 stop), LIGHT (-1 stop) - full stops only (f/1.4 - f/22)
+- **ISO cycling**: LIGHT long-press (100-3200 in full stops)
+- **Measurement behavior**: Now fully automatic (1Hz continuous), no manual trigger needed
 - **Mode toggle**: MODE long-press (EV ↔ lux display)
 - **Display layout**: Unchanged (EV + shutter speed + aperture)
 
@@ -216,8 +238,10 @@ May also need to adjust `LIGHTMETER_CALIBRATION` (currently 2.58) for overall EV
   - [ ] ALARM: Aperture increment works
   - [ ] LIGHT: Aperture decrement works
   - [ ] LIGHT long-press: ISO cycling works
-  - [ ] ALARM long-press: Reading updates (signal indicator flashes)
   - [ ] MODE long-press: Toggle lux/EV mode
+- [ ] **Auto-measurement**:
+  - [ ] Readings update automatically every second
+  - [ ] Display refreshes continuously without user input
 - [ ] **Display correctness**:
   - [ ] EV values display (may be inaccurate until calibrated)
   - [ ] Shutter speed recommendations appear
@@ -233,16 +257,11 @@ May also need to adjust `LIGHTMETER_CALIBRATION` (currently 2.58) for overall EV
    - Check assembly documentation
    - Would provide datasheet for better initial calibration
 
-2. **Auto-exposure mode**:
-   - Continuous reading with tick frequency
-   - Real-time shutter speed updates
-   - Would require balancing power consumption
-
-3. **Multi-point calibration**:
+2. **Multi-point calibration**:
    - Store calibration curve in multiple segments
    - Better accuracy across wide lux range
 
-4. **Incident vs. reflected metering**:
+3. **Incident vs. reflected metering**:
    - Document optimal sensor orientation
    - Consider adding mode indicator
 
